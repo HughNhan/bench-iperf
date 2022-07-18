@@ -23,9 +23,10 @@ ipv="4"
 bstart=0
 bend=0
 bitrate_range=
+omit=0
 
 echo "opts before: $@"
-longopts="ifname:,protocol:,length:,remotehost:,time:,bitrate:,cpu-pin:,passthru:,bitrate-range:"
+longopts="ifname:,protocol:,length:,remotehost:,time:,bitrate:,cpu-pin:,passthru:,bitrate-range:,omit:"
 opts=$(getopt -q -o "" --longoptions "$longopts" -n "getopt.sh" -- "$@");
 if [ $? -ne 0 ]; then
     exit_error "Unrecognized option specified"
@@ -98,6 +99,12 @@ while true; do
             bend=$(echo $bitrate_range | awk -F'-' '{print $2}')
             shift
             ;;
+        --omit)     # skip first number of seconds
+            shift;
+            omit=$1
+            echo "omit=$omit"
+            shift
+            ;;
         --)
             shift;
             break
@@ -108,7 +115,7 @@ while true; do
 done
 
 case "${cpu_pin}" in
-    ""|"numa")
+    ""|"numa"|"cpu-numa")
 	;;
     *)
 	exit_error "unsupported cpu-pin value '${cpu_pin}'"
@@ -157,15 +164,26 @@ if [ -z "$remotehost" ]; then
 fi
 # TODO: validate $remotehost with regex
 
+#
+# The cpu_pin="cpu-numa" mode, pin client and server to a CPU.
+# If they colocate (INTRA-xxx), they should also be on the same NUMA.
+# Since the server is pinned to the NIC's NUMA, client also need to know have that NIC.
+#
+pin_ifname=$ifname
 ifname=$(ip route get ${remotehost} | head -n 1 | awk -F" dev " '{ print $2 }' | awk -F" src " '{ print $1 }')
 if [ ! -e /sys/class/net/${ifname} ]; then
     exit_error "invalid interface '${ifname}' found"
 fi
 
+if [ "$ifname" != "lo" ]; then
+    pin_ifname=$ifname;
+fi
+
+
 ifname_numa_node=-1
 ifname_numa_node_cpus=-1
-if [ -e /sys/class/net/${ifname}/device/numa_node ]; then
-    ifname_numa_node=$(cat /sys/class/net/${ifname}/device/numa_node)
+if [ -e /sys/class/net/${pin_ifname}/device/numa_node ]; then
+    ifname_numa_node=$(cat /sys/class/net/${pin_ifname}/device/numa_node)
 
     ifname_numa_node_cpus=$(cat /sys/devices/system/node/node${ifname_numa_node}/cpulist)
 elif [ "${cpu_pin}" == "numa" ]; then
@@ -193,14 +211,35 @@ echo "time=$time"
 echo "length=$length"
 echo "protocol=$protocol"
 
+
+function assign-pin-cpu {
+    local my_cpu
+    # iperf PIN is to pin same NUMA and 1 CPU 
+    IFS=',' read -r -a array <<< "$ifname_numa_node_cpus"
+    if [ "$1" == "client" ]; then
+        my_cpu=${array[${#array[@]}-1]}
+    else
+        my_cpu=${array[${#array[@]}-2]}
+    fi
+	cpu_pin_cmd="taskset --cpu-list ${my_cpu}"
+    echo $1: $cpu_pin_cmd
+}
+
 cpu_pin_cmd=""
 case "${cpu_pin}" in
     "numa")
-	cpu_pin_cmd="taskset --cpu-list ${ifname_numa_node_cpus}"
-	;;
+	    cpu_pin_cmd="taskset --cpu-list ${ifname_numa_node_cpus}"
+	    ;;
+    "cpu-numa")
+        assign-pin-cpu client
+	    ;;
 esac
 
 options="--format k -c $remotehost -p $control_port $protocol $length --get-server-output"
+if [ "$omit" -ne 0 ]; then
+    options+=" --omit $omit"
+fi
+
 #options+=" --cport $data_port"
 # strip ',' from the passthru options 
 passthru_opts=$(echo "$pt_opts" | sed 's/,/ /g')
