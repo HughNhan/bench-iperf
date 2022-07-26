@@ -119,7 +119,7 @@ function iperf-drop-analyzer {
 function iperf-drop-hunter {
     debug_pr iperf-drop-hunter @116 enter: $@
     new_cmd="$cmd --bitrate $2$1" 
-    debug_pr iperf-drop-hunter @119 new_cmd: $new_cmd
+    echo iperf-drop-hunter @119 new_cmd: $new_cmd
     ${new_cmd} 2>&1 | tee -a iperf-client-result.txt
     iperf-drop-analyzer
     if [ "$analyzed_result" -ne "0" ]; then

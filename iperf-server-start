@@ -172,6 +172,10 @@ if [ -e /sys/class/net/${ifname}/device/numa_node ]; then
     ifname_numa_node_cpus=$(cat /sys/devices/system/node/node${ifname_numa_node}/cpulist)
 elif [ "${cpu_pin}" == "numa" ]; then
     exit_error "cannot determine numa node for interface '${ifname}' and cpu-pin is numa"
+else
+    # When cpu_pin == "cpu-numa" AND topo=internode topo, the device is eth0. Default it to numa node0.
+    # In other word, there is no numa associated with ifname, just use numa0
+    ifname_numa_node_cpus=$(cat /sys/devices/system/node/node0/cpulist)
 fi
 
 echo "ifname=${ifname}"
