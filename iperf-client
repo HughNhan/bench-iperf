@@ -268,7 +268,8 @@ if [ $bit_rate != None ]; then
 fi
 cmd+="${cpu_pin_cmd} iperf3 $options"
 if [ "$ipv" == "6" ]; then
-    cmd+=" -V"
+    # version specific
+    cmd+=" -6"
 fi
 echo "going to run: ${cmd}"
 
